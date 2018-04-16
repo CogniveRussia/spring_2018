@@ -1,20 +1,10 @@
 import re
 import os
-import time
-import pickle
-import sklearn
 import numpy as np
 import pandas as pd
-import seaborn as sns
-
-import scipy.sparse
-from tqdm import tqdm, tqdm_notebook
-from collections import defaultdict, OrderedDict
-from matplotlib import pyplot as plt
-
-from scipy.sparse import csr_matrix, coo_matrix, csc_matrix
 
 from utils import Timer
+from collections import defaultdict
 
 ### PUT YOUR PATH HERE
 path_to_data = '/home/shared_files/'
@@ -177,6 +167,38 @@ def join_ops_with_flatten_members(ops, flatten_ops_with_members, id_colname='ID'
 
 
 def off_data_cleaning(off_ops, off_members, fill_off_ops=None, fill_off_members=None, inplace=True, verbose=1):
+    """
+    Clean offline operations and offline members tables from broken records / fill missing values / repair broken values
+
+    Parameters
+    ----------
+    off_ops : DataFrame
+        offline operations dataframe
+    off_members : DataFrame
+        offline members dataframe
+    fill_off_ops : dict, None
+        default values for NaN-containing columns in offline operations
+    fill_off_members : dict, None
+        default values for NaN-containing columns in offline members
+    inplace : bool, True
+        choose to modify input tables inplace or not
+    verbose:  int, 1
+        verbose > 0 means that every intermediate preprocessing step will print notification
+        to disable intermediate outputs, set verbose to 0
+
+    Returns
+    -------
+    cleaned_off_ops : DataFrame
+        cleaned off_ops dataframe
+    cleaned_off_members: DataFrame
+        cleaned off_members dataframe
+    operationid_counter: dict
+        dictionary mapping original operation indices to 0-based
+        (to obtain inverse mapping compute {v: k for k, v in operationid_counter.items()})
+    clientid_counter: dict
+        dictionary mapping original operation indices to 0-based
+        (to obtain inverse mapping compute {v: k for k, v in clientid_counter.items()})
+    """
     timer_verbose = (verbose > 0)
     if not inplace:
         off_ops = off_ops.copy()
