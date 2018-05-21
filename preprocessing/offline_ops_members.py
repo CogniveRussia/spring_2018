@@ -13,9 +13,10 @@ off_ops_filename = 'off_ops.csv'
 off_members_filename = 'off_members.csv'
 susp_ops_filename = 'susp_ops.csv'
 susp_members_filename = 'susp_members.csv'
+#susp_history_filename = ''
 
 
-def read_tables(read_off_ops=True, read_off_members=True, read_susp_ops=True, read_susp_members=True, verbose=0):
+def read_tables_old(read_off_ops=True, read_off_members=True, read_susp_ops=True, read_susp_members=True, verbose=0):
     timer_verbose = (verbose > 0)
     result = tuple()
     if read_off_ops:
@@ -34,6 +35,80 @@ def read_tables(read_off_ops=True, read_off_members=True, read_susp_ops=True, re
         with Timer('reading susp_members', timer_verbose):
             susp_members = pd.read_csv(os.path.join(path_to_data, susp_members_filename))
             result += (susp_members,)
+    return result
+
+
+def read_tables(path_to_data,
+                off_ops_filename=None,
+                off_members_filename=None,
+                susp_ops_filename=None,
+                susp_members_filename=None,
+                susp_history_filename=None,
+                scenarios_filename=None,
+                verbose=0):
+    timer_verbose = (verbose > 0)
+    result = tuple()
+    if off_ops_filename is not None:
+        with Timer('reading off_ops', timer_verbose):
+            off_ops = pd.read_csv(os.path.join(path_to_data, off_ops_filename))
+            result += (off_ops,)
+    if off_members_filename is not None:
+        with Timer('reading off_members', timer_verbose):
+            off_members = pd.read_csv(os.path.join(path_to_data, off_members_filename))
+            result += (off_members,)
+    if susp_ops_filename is not None:
+        with Timer('reading susp_ops', timer_verbose):
+            susp_ops = pd.read_csv(os.path.join(path_to_data, susp_ops_filename))
+            result += (susp_ops,)
+    if susp_members_filename is not None:
+        with Timer('reading susp_members', timer_verbose):
+            susp_members = pd.read_csv(os.path.join(path_to_data, susp_members_filename))
+            result += (susp_members,)
+    if susp_history_filename is not None:
+        with Timer('reading susp_history', timer_verbose):
+            susp_history = pd.read_csv(os.path.join(path_to_data, susp_history_filename))
+            result += (susp_history,)
+    if scenarios_filename is not None:
+        with Timer('reading scenarios', timer_verbose):
+            scenarios = pd.read_csv(os.path.join(path_to_data, scenarios_filename))
+            result += (scenarios,)
+    return result
+
+
+def read_tables(path_to_data,
+                off_ops_filename=None,
+                off_members_filename=None,
+                susp_ops_filename=None,
+                susp_members_filename=None,
+                susp_history_filename=None,
+                scenarios_filename=None,
+                verbose=0):
+    timer_verbose = (verbose > 0)
+    result = tuple()
+    if off_ops_filename is not None:
+        with Timer('reading off_ops', timer_verbose):
+            off_ops = pd.read_csv(os.path.join(path_to_data, off_ops_filename))
+            result += (off_ops,)
+    if off_members_filename is not None:
+        with Timer('reading off_members', timer_verbose):
+            off_members = pd.read_csv(os.path.join(path_to_data, off_members_filename))
+            result += (off_members,)
+    if susp_ops_filename is not None:
+        with Timer('reading susp_ops', timer_verbose):
+            susp_ops = pd.read_csv(os.path.join(path_to_data, susp_ops_filename))
+            result += (susp_ops,)
+    if susp_members_filename is not None:
+        with Timer('reading susp_members', timer_verbose):
+            susp_members = pd.read_csv(os.path.join(path_to_data, susp_members_filename))
+            result += (susp_members,)
+    if susp_history_filename is not None:
+        with Timer('reading susp_history', timer_verbose):
+            susp_history = pd.read_csv(os.path.join(path_to_data, susp_history_filename))
+            result += (susp_history,)
+    if scenarios_filename is not None:
+        with Timer('reading scenarios', timer_verbose):
+            scenarios = pd.read_csv(os.path.join(path_to_data, scenarios_filename))
+            result += (scenarios,)
     return result
 
 
@@ -205,13 +280,16 @@ def off_data_cleaning(off_ops, off_members, fill_off_ops=None, fill_off_members=
         off_members = off_members.copy()
 
     with Timer('drop messy off_members columns', timer_verbose):
-        off_members.drop(['P_DATE_INSERT', 'P_DATE_UPDATE', 'CHANGEDATE'], axis=1, inplace=True)
+        try:
+            off_members.drop(['P_DATE_INSERT', 'P_DATE_UPDATE', 'CHANGEDATE'], axis=1, inplace=True)
+        except:
+            pass
 
     with Timer('drop off_members with OPERATIONID that are not in off_ops', timer_verbose):
         off_members = off_members[off_members.P_OPERATIONID.isin(off_ops.ID)].copy()
         off_members.reset_index(drop=True, inplace=True)
 
-    with Timer('drop off_ops with OPERATIONID that are not in off_ops', timer_verbose):
+    with Timer('drop off_ops with OPERATIONID that are not in off_members', timer_verbose):
         off_ops = off_ops[off_ops.ID.isin(off_members.P_OPERATIONID)].copy()
         off_ops.reset_index(drop=True, inplace=True)
 
@@ -297,6 +375,38 @@ def off_data_cleaning(off_ops, off_members, fill_off_ops=None, fill_off_members=
         off_members.drop(['ID_y'], axis=1, inplace=True)
         off_members.rename(columns={'ID_x': 'ID'}, inplace=True)
 
+    with Timer('removing duplicated P_OPERATIONID-P_CLIENTID-P_CLIENTROLE rows, preserving last ones'):
+        duplicate_row_detector = off_members.groupby(['P_OPERATIONID', 'P_CLIENTID', 'P_CLIENTROLE']).size()
+
+        duplicate_rows = duplicate_row_detector[duplicate_row_detector > 1]
+        if len(duplicate_rows) != 0:
+            duplicate_rows = duplicate_rows.reset_index(drop=False)
+            duplicate_indices_to_delete = pd.Index([])
+            for rownum, row in duplicate_rows.iterrows():
+                duplicate_indices_to_delete = duplicate_indices_to_delete.append(off_members[(off_members.P_OPERATIONID == row.P_OPERATIONID)
+                                              & (off_members.P_CLIENTID == row.P_CLIENTID)
+                                              & (off_members.P_CLIENTROLE == row.P_CLIENTROLE)].index[:-1])
+            off_members.drop(duplicate_indices_to_delete, inplace=True)
+            del duplicate_indices_to_delete
+        del duplicate_row_detector
+        del duplicate_rows
+
+    with Timer('removing duplicated P_OPERATIONID-P_CLIENTROLE rows, preserving first ones'):
+        duplicate_row_detector = cleaned_off_members.groupby(['P_OPERATIONID', 'P_CLIENTROLE']).size()
+
+        duplicate_rows = duplicate_row_detector[duplicate_row_detector > 1]
+        if len(duplicate_rows) != 0:
+            duplicate_rows = duplicate_rows.reset_index(drop=False)
+            duplicate_indices_to_delete = pd.Index([])
+            for rownum, row in duplicate_rows.iterrows():
+                duplicate_indices_to_delete = duplicate_indices_to_delete.append(
+                    cleaned_off_members[(cleaned_off_members.P_OPERATIONID == row.P_OPERATIONID)
+                                        & (cleaned_off_members.P_CLIENTROLE == row.P_CLIENTROLE)].index[1:])
+            cleaned_off_members.drop(duplicate_indices_to_delete, inplace=True)
+            del duplicate_indices_to_delete
+        del duplicate_row_detector
+        del duplicate_rows
+
     with Timer('stable sorting off_members by P_CLIENTID inplace', timer_verbose):
         off_members.sort_values('P_CLIENTID', kind='mergesort', inplace=True)
 
@@ -310,7 +420,12 @@ def off_data_cleaning(off_ops, off_members, fill_off_ops=None, fill_off_members=
         off_members.sort_values('P_OPERATIONID', kind='mergesort', inplace=True)
 
     with Timer('retrieving member operationdatetime for each row from off_members', timer_verbose):
-        member_operationdatetime = off_ops.P_OPERATIONDATETIME[off_members.P_OPERATIONID]
+        #member_operationdatetime = off_ops.P_OPERATIONDATETIME[off_members.P_OPERATIONID]
+        member_operationdatetime = pd.to_datetime(
+            pd.Series(
+                np.repeat(off_ops.P_OPERATIONDATETIME.values, off_members.groupby('P_OPERATIONID').size().values)
+            )
+        )
 
     with Timer('computing acc_persistence for off_members', timer_verbose):
         regopendate = pd.to_datetime(off_members['P_REGOPENDATE'],errors='coerce', format='%Y-%m-%d %H:%M:%S')
@@ -320,17 +435,13 @@ def off_data_cleaning(off_ops, off_members, fill_off_ops=None, fill_off_members=
         off_members.reset_index(drop=True, inplace=True)
 
     with Timer('transforming P_EKNPCODES into proper ints', timer_verbose):
-        off_ops.loc[:, 'P_EKNPCODE'] = off_ops['P_EKNPCODE'] \
-            .map(str) \
-            .map(lambda s: s.replace('З', '3')) \
-            .map(float) \
-            .map(int)
+        off_ops.loc[:, 'P_EKNPCODE'] = off_ops['P_EKNPCODE'].map(lambda s: int(float(str(s).replace('З', '3'))))
 
     return off_ops, off_members, operationid_counter, clientid_counter
 
 
 if __name__ == '__main__':
-    off_ops, off_members, susp_ops, susp_members = read_tables(verbose=1)
+    off_ops, off_members, susp_ops, susp_members = read_tables(path_to_data, off_ops_filename, off_members_filename, susp_ops_filename, susp_members_filename, verbose=1)
 
     with Timer('cleaning off_ops and off_members', verbose=1):
         cleaned_off_ops, cleaned_off_members, operationid_counter, clientid_counter = off_data_cleaning(off_ops,
