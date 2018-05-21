@@ -47,5 +47,8 @@ class SparseFeatureLoader:
             self.columns = pickle.load(handle)
             
     def get(self, operation_ids):
-        operation_indices = [self.operationid_counter[op] for op in operation_ids]
+        operation_indices = [self.operationid_counter[op] for op in operation_ids if op in self.operationid_counter]
         return self.data[operation_indices]
+    
+    def have_features_for_ids(self, operation_ids):
+        return np.array([op in self.operationid_counter for op in operation_ids])
