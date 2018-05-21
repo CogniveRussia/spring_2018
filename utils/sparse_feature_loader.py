@@ -8,7 +8,8 @@ from scipy.sparse import load_npz
 
 class SparseFeatureLoader:
     def __init__(self, data_path, memmap=True):
-        if memmap:
+        self._memmap = memmap
+        if self._memmap:
             self.__load_memmap(data_path)
         else:
             self.__load_csr(data_path)
@@ -22,21 +23,21 @@ class SparseFeatureLoader:
 
     def __load_memmap(self, data_path):
         with open(os.path.join(data_path, 'sparse_matrix_info.pkl'), 'rb') as handle:
-            sparse_matrix_info = pickle.load(handle)
+            self.sparse_matrix_info = pickle.load(handle)
 
         self.data_memmap = np.memmap(os.path.join(data_path, 'data.memmap'),
                                      mode='r',
                                      dtype=np.float32,
-                                     shape=(sparse_matrix_info['nnz'],))
+                                     shape=(self.sparse_matrix_info['nnz'],))
 
         self.col_idx_memmap = np.memmap(os.path.join(data_path, 'col_idx.memmap'),
                                         mode='r',
                                         dtype=np.int16,
-                                        shape=(sparse_matrix_info['nnz'],))
+                                        shape=(self.sparse_matrix_info['nnz'],))
         self.indptr_memmap = np.memmap(os.path.join(data_path, 'indptr.memmap'),
                                        mode='r',
                                        dtype=np.int64,
-                                       shape=(sparse_matrix_info['shape'][0] + 1,))
+                                       shape=(self.sparse_matrix_info['shape'][0] + 1,))
 
     def __load_operation_index(self, data_path):
         with open(os.path.join(data_path, 'operationid_counter.pkl'), 'rb') as handle:
@@ -47,9 +48,6 @@ class SparseFeatureLoader:
             self.columns = pickle.load(handle)
 
     def _get(self, indices_to_get):
-        with open(os.path.join(self.data_path, 'sparse_matrix_info.pkl'), 'rb') as handle:
-            sparse_matrix_info = pickle.load(handle)
-
         if np.isscalar(indices_to_get):
             indices_to_get = [indices_to_get]
         indices_to_get = np.array(indices_to_get, dtype=int)
@@ -68,11 +66,14 @@ class SparseFeatureLoader:
                 self.col_idx_memmap[self.indptr_memmap[index_to_get]:self.indptr_memmap[index_to_get + 1]]
 
         return csr_matrix((new_data, new_col_idx, new_indptr),
-                          shape=(len(indices_to_get), sparse_matrix_info['shape'][1]), dtype=new_data.dtype)
+                          shape=(len(indices_to_get), self.sparse_matrix_info['shape'][1]), dtype=new_data.dtype)
 
     def get(self, operation_ids):
         operation_indices = [self.operationid_counter[op] for op in operation_ids if op in self.operationid_counter]
-        return self._get(operation_indices)
+        if self._memmap:
+            return self._get(operation_indices)
+        else:
+            return self.data[operation_indices]
 
     def have_features_for_ids(self, operation_ids):
         return np.array([op in self.operationid_counter for op in operation_ids])
