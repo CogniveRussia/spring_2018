@@ -404,16 +404,14 @@ class PerOperationNumericFeatureAggregationGenerator():
         with Pool(processes=n_proc) as pool:
             for tupled_zip, total_len in list(zip([source_out_zip, source_in_zip, target_out_zip, target_in_zip],
                                              [source_n_chunks] * 2 + [target_n_chunks] * 2)):
-                nnz_counts.append(
-                    list(
-                        tqdm.tqdm(
-                            pool.imap_unordered(
-                                partial(numeric_feature_generate_chunk, backward=backward, global_delta=global_delta),
-                                tupled_zip
-                            ),
-                            total=total_len,
-                            disable=(verbose == 0)
-                        )
+                nnz_counts += list(
+                    tqdm.tqdm(
+                        pool.imap_unordered(
+                            partial(numeric_feature_generate_chunk, backward=backward, global_delta=global_delta),
+                            tupled_zip
+                        ),
+                        total=total_len,
+                        disable=(verbose == 0)
                     )
                 )
         nnz = sum(nnz_counts)
@@ -425,8 +423,8 @@ class PerOperationNumericFeatureAggregationGenerator():
 
         path_to_numeric_agg = os.path.join(self.path_generated_features, numeric_agg_dir)
         coo_filename = os.path.join(path_to_numeric_agg, 'coo.csv')
-        concat_files(os.path.join(self.path_generated_features, numeric_agg_dir, 'coo.csv'),
-                     source_out_filenames + source_in_filenames + target_out_filenames + target_in_filenames)
+        concat_files(source_out_filenames + source_in_filenames + target_out_filenames + target_in_filenames,
+                     os.path.join(self.path_generated_features, numeric_agg_dir, 'coo.csv'))
         with open(os.path.join(numeric_agg_dir, 'column_names.pkl'), 'wb') as handle:
             pickle.dump(colnames, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
