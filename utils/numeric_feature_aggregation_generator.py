@@ -460,7 +460,7 @@ class PerOperationNumericFeatureAggregationGenerator():
 
         coo_features.sort_values(by=['col_idx', 'row_idx'], kind='mergesort', inplace=True)
 
-        csc_indptr = self.build_indptr(coo_features, verbose=verbose)
+        csc_indptr = self.build_indptr(coo_features, compress_by='col_idx', verbose=verbose)
 
         csc_indptr_memmap = np.memmap(os.path.join(path_to_numeric_agg, 'csc_indptr.memmap'),
                                       mode='w+',
@@ -493,7 +493,7 @@ class PerOperationNumericFeatureAggregationGenerator():
 
 
 
-    def build_indptr(self, coo_features, verbose=1):
+    def build_indptr(self, coo_features, compress_by='row_idx', verbose=1):
         indptr = np.zeros(self.n_operations + 1, dtype=np.int64)
         ptr = 0
         prev = -1
@@ -503,13 +503,13 @@ class PerOperationNumericFeatureAggregationGenerator():
             0 if nnz % chunk_size == 0 else 1)
         chunk_range = np.arange(chunk_size)
         for i in tqdm.tqdm(range(n_chunks), disable=(verbose == 0)):
-            diffs = np.diff(coo_features.row_idx[i * chunk_size: min((i + 1) * chunk_size, nnz)].values)
+            diffs = np.diff(coo_features[compress_by][i * chunk_size: min((i + 1) * chunk_size, nnz)].values)
             jump_points = chunk_range[1:len(diffs) + 1][diffs > 0]
-            if coo_features.row_idx[i * chunk_size] > prev:
-                indptr[coo_features.row_idx[i * chunk_size]] = i * chunk_size
+            if coo_features[compress_by][i * chunk_size] > prev:
+                indptr[coo_features[compress_by][i * chunk_size]] = i * chunk_size
             for jump_point in jump_points:
-                indptr[coo_features.row_idx[i * chunk_size + jump_point]] = i * chunk_size + jump_point
-            prev = coo_features.row_idx[min((i + 1) * chunk_size, nnz) - 1]
+                indptr[coo_features[compress_by][i * chunk_size + jump_point]] = i * chunk_size + jump_point
+            prev = coo_features[compress_by][min((i + 1) * chunk_size, nnz) - 1]
         indptr[-1] = nnz
         return indptr
 
