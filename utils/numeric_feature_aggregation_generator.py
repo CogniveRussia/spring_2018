@@ -130,6 +130,8 @@ def numeric_feature_generate_chunk(tupled_data,
     for _ in range(1, len(backward)):
         deltas.append([deltas[-1][-1] + el for el in deltas[0]])
 
+    #print(second_clientid_opid_chunk, flush=True)
+    #print(second_clientid_opid_chunk[0][0] - backward[0], max(second_clientid_opid_chunk[0][0] - backward[0], 0))
     chunk_from = sec_to_op_index[max(second_clientid_opid_chunk[0][0] - backward[0], 0)]
     chunk_to = sec_to_op_index[second_clientid_opid_chunk[-1][0]]
     chunk_numeric_csc = numeric_csr[chunk_from:chunk_to].tocsc()
@@ -207,7 +209,7 @@ class PerOperationNumericFeatureAggregationGenerator():
 
         sorted_seconds_uniqs = np.sort(self.graph_trans_df[('all', 'seconds_from_start')].unique(),
                                        kind='mergesort').astype(int)
-        self.sec_to_op_index = np.zeros(int(self.graph_trans_df[('all', 'seconds_from_start')].max) + 1, dtype=int)
+        self.sec_to_op_index = np.zeros(int(self.graph_trans_df[('all', 'seconds_from_start')].max()) + 1, dtype=int)
         sec_uniqs, sec_op_ids = np.unique(self.graph_trans_df[('all', 'seconds_from_start')].values.astype(int),
                                           return_index=True)
 
@@ -309,9 +311,9 @@ class PerOperationNumericFeatureAggregationGenerator():
         source_op_indices = self.graph_trans_df[('all', 'ID')][if_source].values.astype(int)
 
         source_pool_input = np.c_[source_seconds, source_indices, source_op_indices]
-        source_n_chunks = n_batches = len(source_pool_input) // chunk_size + (
+        source_n_chunks = len(source_pool_input) // chunk_size + (
             1 if len(source_pool_input) % chunk_size != 0 else 0)
-        source_out_pool_input_chunks = [
+        source_pool_input_chunks = [
             source_pool_input[i * chunk_size: min((i + 1) * chunk_size, len(source_pool_input))]
             for i in range(source_n_chunks)
         ]
@@ -324,9 +326,9 @@ class PerOperationNumericFeatureAggregationGenerator():
         target_op_indices = self.graph_trans_df[('all', 'ID')][if_source].values.astype(int)
 
         target_pool_input = np.c_[target_seconds, target_indices, target_op_indices]
-        target_n_chunks = n_batches = len(target_pool_input) // chunk_size + (
+        target_n_chunks = len(target_pool_input) // chunk_size + (
             1 if len(target_pool_input) % chunk_size != 0 else 0)
-        target_out_pool_input_chunks = [
+        target_pool_input_chunks = [
             target_pool_input[i * chunk_size: min((i + 1) * chunk_size, len(target_pool_input))]
             for i in range(target_n_chunks)
         ]
@@ -337,7 +339,7 @@ class PerOperationNumericFeatureAggregationGenerator():
                          f'source_{numeric_colname}_out_{i * chunk_size}-{min(len(source_pool_input), (i + 1) * chunk_size) - 1}')
             for i in range(source_n_chunks)
         ]
-        source_out_zip = zip(source_pool_input,
+        source_out_zip = zip(source_pool_input_chunks,
                              [source_flat_stat] * source_n_chunks,
                              [source_numeric_csr] * source_n_chunks,
                              [self.sec_to_op_index] * source_n_chunks,
@@ -349,7 +351,7 @@ class PerOperationNumericFeatureAggregationGenerator():
                          f'source_{numeric_colname}_in_{i * chunk_size}-{min(len(source_pool_input), (i + 1) * chunk_size) - 1}')
             for i in range(source_n_chunks)
         ]
-        source_in_zip = zip(source_pool_input,
+        source_in_zip = zip(source_pool_input_chunks,
                             [target_flat_stat] * source_n_chunks,
                             [target_numeric_csr] * source_n_chunks,
                             [self.sec_to_op_index] * source_n_chunks,
@@ -361,7 +363,7 @@ class PerOperationNumericFeatureAggregationGenerator():
                          f'source_{numeric_colname}_out_{i * chunk_size}-{min(len(target_pool_input), (i + 1) * chunk_size) - 1}')
             for i in range(target_n_chunks)
         ]
-        target_out_zip = zip(target_pool_input,
+        target_out_zip = zip(target_pool_input_chunks,
                              [source_flat_stat] * target_n_chunks,
                              [source_numeric_csr] * target_n_chunks,
                              [self.sec_to_op_index] * target_n_chunks,
@@ -373,7 +375,7 @@ class PerOperationNumericFeatureAggregationGenerator():
                          f'source_{numeric_colname}_in_{i * chunk_size}-{min(len(target_pool_input), (i + 1) * chunk_size) - 1}')
             for i in range(target_n_chunks)
         ]
-        target_in_zip = zip(target_pool_input,
+        target_in_zip = zip(target_pool_input_chunks,
                             [target_flat_stat] * target_n_chunks,
                             [target_numeric_csr] * target_n_chunks,
                             [self.sec_to_op_index] * target_n_chunks,
@@ -383,13 +385,28 @@ class PerOperationNumericFeatureAggregationGenerator():
         global_delta = 0
         nnz_counts = []
         n_proc = n_jobs if n_jobs > 0 else cpu_count() - n_jobs + 1
+        # for tupled_zip, total_len in list(zip([source_out_zip, source_in_zip, target_out_zip, target_in_zip],
+        #                                       [source_n_chunks] * 2 + [target_n_chunks] * 2)):
+        #     nnz_counts.append(
+        #         list(
+        #             tqdm.tqdm(
+        #                 map(
+        #                     partial(numeric_feature_generate_chunk, backward=backward, global_delta=global_delta),
+        #                     tupled_zip
+        #                 ),
+        #                 total=total_len,
+        #                 disable=(verbose == 0)
+        #             )
+        #         )
+        #     )
+
 
         with Pool(processes=n_proc) as pool:
-            for tupled_zip, total_len in zip([source_out_zip, source_in_zip, target_out_zip, target_in_zip],
-                                             [source_n_chunks] * 2 + [target_n_chunks] * 2):
+            for tupled_zip, total_len in list(zip([source_out_zip, source_in_zip, target_out_zip, target_in_zip],
+                                             [source_n_chunks] * 2 + [target_n_chunks] * 2)):
                 nnz_counts.append(
                     list(
-                        tqdm.tqdm_notebook(
+                        tqdm.tqdm(
                             pool.imap_unordered(
                                 partial(numeric_feature_generate_chunk, backward=backward, global_delta=global_delta),
                                 tupled_zip
@@ -487,7 +504,7 @@ class PerOperationNumericFeatureAggregationGenerator():
         n_chunks = nnz // chunk_size + (
             0 if nnz % chunk_size == 0 else 1)
         chunk_range = np.arange(chunk_size)
-        for i in tqdm.tqdm_notebook(range(n_chunks), disable=(verbose == 0)):
+        for i in tqdm.tqdm(range(n_chunks), disable=(verbose == 0)):
             diffs = np.diff(coo_features.row_idx[i * chunk_size: min((i + 1) * chunk_size, nnz)].values)
             jump_points = chunk_range[1:len(diffs) + 1][diffs > 0]
             if coo_features.row_idx[i * chunk_size] > prev:
