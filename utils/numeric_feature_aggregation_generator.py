@@ -37,6 +37,12 @@ off_members_filename = 'off_members.csv'
 susp_ops_filename = 'susp_ops.csv'
 susp_members_filename = 'susp_members.csv'
 
+def concat_files(filenames, out_filename):
+    with open(out_filename, 'w') as write_handle:
+        for filename in filenames:
+            for line in open(filename, 'r'):
+                write_handle.write(line)
+
 
 def fill_zeros_with_last(arr):
     """
@@ -189,6 +195,10 @@ class PerOperationNumericFeatureAggregationGenerator():
             path_to_dataset,
             kwargs.get('local_temp_data_dirname', DEFAULT_LOCAL_TEMP_DATA_DIRNAME)
         )
+        self.path_generated_features = os.path.join(
+            path_to_dataset,
+            kwargs.get('generated_features_dirname', DEFAULT_GENERATED_FEATURES_DIRNAME)
+        )
         with open(os.path.join(self.path_to_graph_data, 'graph_trans_df.pkl'), 'rb') as handle:
             self.graph_trans_df = pickle.load(handle)
 
@@ -277,6 +287,7 @@ class PerOperationNumericFeatureAggregationGenerator():
     def generate_features(self,
                           numeric_colname,
                           columns_to_slice_by,
+                          numeric_agg_dir,
                           stats_to_get=['mean', 'count'],
                           backward=[86400 * 7, 86400 * 3, 86400 * 1],
                           chunk_size=20000,
@@ -395,6 +406,98 @@ class PerOperationNumericFeatureAggregationGenerator():
             colnames += [prefix + colname_base for colname_base in colnames_base]
         colnames = np.array(colnames)
 
-        # post-generating step
+        path_to_numeric_agg = os.path.join(self.path_generated_features, numeric_agg_dir)
+        coo_filename = os.path.join(path_to_numeric_agg, 'coo.csv')
+        concat_files(os.path.join(self.path_generated_features, numeric_agg_dir, 'coo.csv'),
+                     source_out_filenames + source_in_filenames + target_out_filenames + target_in_filenames)
+        with open(os.path.join(numeric_agg_dir, 'column_names.pkl'), 'wb') as handle:
+            pickle.dump(colnames, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+        coo_features = pd.read_csv(coo_filename,
+                                   header=None,
+                                   names=['row_idx', 'col_idx', 'data'],
+                                   dtype={'row_idx': np.int32, 'col_idx': np.int16, 'data': np.float32},
+                                   nrows=nnz)
+        coo_features.sort_values(by=['row_idx', 'col_idx'], kind='mergesort', inplace=True)
+
+        csr_indptr = self.build_indptr(coo_features, verbose=verbose)
+
+        csr_indptr_memmap = np.memmap(os.path.join(path_to_numeric_agg, 'csr_indptr.memmap'),
+                                      mode='w+',
+                                      shape=csr_indptr.shape,
+                                      dtype=csr_indptr.dtype)
+        csr_indices_memmap = np.memmap(os.path.join(path_to_numeric_agg, 'csr_indices.memmap'),
+                                       mode='w+',
+                                       shape=(nnz,),
+                                       dtype=coo_features.dtypes['row_idx'])
+        csr_data_memmap = np.memmap(os.path.join(path_to_numeric_agg, 'csr_data.memmap'),
+                                    mode='w+',
+                                    shape=(nnz,),
+                                    dtype=coo_features.dtypes['data'])
+        csr_indptr_memmap[:] = csr_indptr[:]
+        csr_indices_memmap[:] = coo_features.row_idx
+        csr_data_memmap[:] = coo_features.data
+
+        del csr_indptr
+        del csr_indptr_memmap
+        del csr_indices_memmap
+        del csr_data_memmap
+
+        coo_features.sort_values(by=['col_idx', 'row_idx'], kind='mergesort', inplace=True)
+
+        csc_indptr = self.build_indptr(coo_features, verbose=verbose)
+
+        csc_indptr_memmap = np.memmap(os.path.join(path_to_numeric_agg, 'csc_indptr.memmap'),
+                                      mode='w+',
+                                      shape=csr_indptr.shape,
+                                      dtype=csr_indptr.dtype)
+        csc_indices_memmap = np.memmap(os.path.join(path_to_numeric_agg, 'csc_indices.memmap'),
+                                       mode='w+',
+                                       shape=(nnz,),
+                                       dtype=coo_features.dtypes['col_idx'])
+        csc_data_memmap = np.memmap(os.path.join(path_to_numeric_agg, 'csc_data.memmap'),
+                                    mode='w+',
+                                    shape=(nnz,),
+                                    dtype=coo_features.dtypes['data'])
+
+        csc_indptr_memmap[:] = csc_indptr
+        csc_indices_memmap[:] = coo_features.col_idx
+        csc_data_memmap[:] = coo_features.data
+
+        del csc_indptr
+        del csc_indptr_memmap
+        del csc_indices_memmap
+        del csc_data_memmap
+
+        sparse_matrix_info = {'shape': (self.n_operations, len(colnames)), 'nnz': nnz}
+        with open(os.path.join(path_to_numeric_agg, 'sparse_matrix_info.pkl'), 'wb') as handle:
+            pickle.dump(sparse_matrix_info, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+        return None
+
+
+
+
+    def build_indptr(self, coo_features, verbose=1):
+        indptr = np.zeros(self.n_operations + 1, dtype=np.int64)
+        ptr = 0
+        prev = -1
+        chunk_size = 65536
+        nnz = len(coo_features)
+        n_chunks = nnz // chunk_size + (
+            0 if nnz % chunk_size == 0 else 1)
+        chunk_range = np.arange(chunk_size)
+        for i in tqdm.tqdm_notebook(range(n_chunks), disable=(verbose == 0)):
+            diffs = np.diff(coo_features.row_idx[i * chunk_size: min((i + 1) * chunk_size, nnz)].values)
+            jump_points = chunk_range[1:len(diffs) + 1][diffs > 0]
+            if coo_features.row_idx[i * chunk_size] > prev:
+                indptr[coo_features.row_idx[i * chunk_size]] = i * chunk_size
+            for jump_point in jump_points:
+                indptr[coo_features.row_idx[i * chunk_size + jump_point]] = i * chunk_size + jump_point
+            prev = coo_features.row_idx[min((i + 1) * chunk_size, nnz) - 1]
+        indptr[-1] = nnz
+        return indptr
+
+
 
 
