@@ -71,7 +71,8 @@ def fill_zeros_with_last(arr):
 def numeric_feature_generate_chunk(tupled_data,
                                    global_delta=0,
                                    stats_to_get=['mean', 'count'],
-                                   backward=[86400 * 7, 86400 * 3, 86400 * 1]):
+                                   backward=[86400 * 7, 86400 * 3, 86400 * 1],
+                                   sep=','):
     """
     Generate numeric features through categorical columns slices for some chunk of operation indices
 
@@ -170,9 +171,9 @@ def numeric_feature_generate_chunk(tupled_data,
                     }
                     for j, st in enumerate(stats_to_get):
                         for uniq, numeric_data in numeric_data_by_category.items():
-                            handle.write('{}\t{}\t{}\n'.format(op_id,
+                            handle.write('{}{}{}{}{}\n'.format(op_id, sep,
                                                                global_delta + deltas[bw_idx][
-                                                                   i * len(stats_to_get) + j] + uniq - 1,
+                                                                   i * len(stats_to_get) + j] + uniq - 1, sep,
                                                                st_to_func[st](numeric_data)))
                             nnz += 1
     return nnz
@@ -424,8 +425,8 @@ class PerOperationNumericFeatureAggregationGenerator():
         path_to_numeric_agg = os.path.join(self.path_generated_features, numeric_agg_dir)
         coo_filename = os.path.join(path_to_numeric_agg, 'coo.csv')
         concat_files(source_out_filenames + source_in_filenames + target_out_filenames + target_in_filenames,
-                     os.path.join(self.path_generated_features, numeric_agg_dir, 'coo.csv'))
-        with open(os.path.join(numeric_agg_dir, 'column_names.pkl'), 'wb') as handle:
+                     os.path.join(self.path_generated_features, numeric_agg_dir, coo_filename))
+        with open(os.path.join(path_to_numeric_agg, 'column_names.pkl'), 'wb') as handle:
             pickle.dump(colnames, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
         coo_features = pd.read_csv(coo_filename,
@@ -464,8 +465,8 @@ class PerOperationNumericFeatureAggregationGenerator():
 
         csc_indptr_memmap = np.memmap(os.path.join(path_to_numeric_agg, 'csc_indptr.memmap'),
                                       mode='w+',
-                                      shape=csr_indptr.shape,
-                                      dtype=csr_indptr.dtype)
+                                      shape=csc_indptr.shape,
+                                      dtype=csc_indptr.dtype)
         csc_indices_memmap = np.memmap(os.path.join(path_to_numeric_agg, 'csc_indices.memmap'),
                                        mode='w+',
                                        shape=(nnz,),
